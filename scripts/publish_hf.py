@@ -1,22 +1,49 @@
+import argparse
 from huggingface_hub import HfApi, create_repo
-import shutil
+import os
 
-def main():
+def main(args):
     api = HfApi()
-    repo_id = "YOUR_USERNAME/world-models-breakout-v4"
-    
+    token = os.environ.get("HF_TOKEN")
+    if not token:
+        print("Error: HF_TOKEN environment variable not set.")
+        return
+
+    print(f"Creating repo {args.repo_id}...")
     try:
-        create_repo(repo_id, repo_type="model")
-    except:
-        pass
-        
-    print(f"Uploading models to {repo_id}...")
-    api.upload_file(path_or_fileobj="vae.pth", path_in_repo="vae.pth", repo_id=repo_id)
-    api.upload_file(path_or_fileobj="rnn.pth", path_in_repo="rnn.pth", repo_id=repo_id)
-    api.upload_file(path_or_fileobj="controller.pth", path_in_repo="controller.pth", repo_id=repo_id)
-    api.upload_file(path_or_fileobj="configs/default.yaml", path_in_repo="config.yaml", repo_id=repo_id)
+        create_repo(args.repo_id, repo_type="model", token=token)
+    except Exception as e:
+        print(f"Repo might exist: {e}")
+
+    print("Uploading artifacts...")
+    # Upload checkpoints
+    api.upload_folder(
+        folder_path="results/checkpoints",
+        repo_id=args.repo_id,
+        repo_type="model",
+        path_in_repo="checkpoints",
+        token=token
+    )
+    # Upload Config
+    api.upload_file(
+        path_or_fileobj="configs/default.yaml",
+        path_in_repo="config.yaml",
+        repo_id=args.repo_id,
+        token=token
+    )
+    # Upload Results
+    api.upload_folder(
+        folder_path="results/eval_runs",
+        repo_id=args.repo_id,
+        repo_type="model",
+        path_in_repo="results",
+        token=token
+    )
     
-    print("Upload complete!")
+    print("Upload Complete.")
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--repo-id", required=True)
+    args = parser.parse_args()
+    main(args)

@@ -1,6 +1,3 @@
-"""
-Convolutional VAE implementation.
-"""
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -10,11 +7,11 @@ class VAE(nn.Module):
         super(VAE, self).__init__()
         self.latent_dim = latent_dim
 
-        # Encoder
-        self.enc_conv1 = nn.Conv2d(3, 32, 4, stride=2)
-        self.enc_conv2 = nn.Conv2d(32, 64, 4, stride=2)
-        self.enc_conv3 = nn.Conv2d(64, 128, 4, stride=2)
-        self.enc_conv4 = nn.Conv2d(128, 256, 4, stride=2)
+        # Encoder: Input (3, 64, 64)
+        self.enc_conv1 = nn.Conv2d(3, 32, 4, stride=2)  # -> (32, 31, 31)
+        self.enc_conv2 = nn.Conv2d(32, 64, 4, stride=2) # -> (64, 14, 14)
+        self.enc_conv3 = nn.Conv2d(64, 128, 4, stride=2)# -> (128, 6, 6)
+        self.enc_conv4 = nn.Conv2d(128, 256, 4, stride=2)# -> (256, 2, 2)
         
         self.fc_mu = nn.Linear(2*2*256, latent_dim)
         self.fc_logvar = nn.Linear(2*2*256, latent_dim)
@@ -45,7 +42,7 @@ class VAE(nn.Module):
         h = F.relu(self.dec_conv1(h))
         h = F.relu(self.dec_conv2(h))
         h = F.relu(self.dec_conv3(h))
-        return torch.sigmoid(self.dec_conv4(h))
+        return torch.sigmoid(self.dec_conv4(h)) # Output 0-1
 
     def forward(self, x):
         mu, logvar = self.encode(x)
@@ -53,7 +50,9 @@ class VAE(nn.Module):
         recon_x = self.decode(z)
         return recon_x, mu, logvar
 
-def loss_function(recon_x, x, mu, logvar):
+def vae_loss_function(recon_x, x, mu, logvar):
+    # MSE Reconstruction Loss
     BCE = F.mse_loss(recon_x, x, reduction='sum')
+    # KL Divergence
     KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-    return BCE + KLD
+    return BCE + KLD, BCE, KLD

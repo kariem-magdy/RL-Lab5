@@ -10,3 +10,6 @@ opencv-python
 pyyaml
 pytest
 tqdm
+pandas
+imageio
+moviepy

@@ -1,64 +1,101 @@
-"""
-Train the VAE on generated rollouts.
-"""
-import sys, os, yaml, torch
-from torch.utils.data import DataLoader
+import argparse
+import yaml
+import torch
+import os
+import sys
+import numpy as np
+from torch.utils.data import Dataset, DataLoader
 from torch.optim import Adam
 import wandb
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from src.models.vae import VAE, loss_function
-from src.dataset import RolloutDataset
-from src.utils.tracking import init_wandb
+from src.models.vae import VAE, vae_loss_function
+from src.utils.seed import set_seed
+from src.utils.logging import init_wandb
 
-def main(config_path):
-    with open(config_path) as f:
+class VAE_Dataset(Dataset):
+    def __init__(self, data_dir):
+        self.files = [os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.endswith('.npz')]
+        # Load all into memory for VAE training (images are small enough if N=1000)
+        # Alternatively, lazy load.
+        print("Loading dataset into memory...")
+        self.data = []
+        for f in self.files:
+            dat = np.load(f)['obs'] # (Seq, 3, 64, 64)
+            self.data.append(dat)
+        self.data = np.concatenate(self.data, axis=0) # (TotalFrames, 3, 64, 64)
+        
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        return torch.tensor(self.data[idx])
+
+def main(args):
+    with open(args.config) as f:
         config = yaml.safe_load(f)
         
+    set_seed(args.seed)
     device = torch.device(config['device'])
-    init_wandb(config, job_type="train_vae")
+    if args.log: init_wandb(config, job_type="train_vae")
 
     # Data
-    dataset = RolloutDataset('data/processed')
-    loader = DataLoader(dataset, batch_size=config['batch_size'], shuffle=True, num_workers=2)
+    dataset = VAE_Dataset(config['data_processed'])
+    loader = DataLoader(dataset, batch_size=config['vae_batch_size'], shuffle=True, num_workers=2)
 
     # Model
     vae = VAE(latent_dim=config['vae_latent_dim']).to(device)
     optimizer = Adam(vae.parameters(), lr=config['vae_lr'])
+    
+    os.makedirs(config['checkpoint_dir'], exist_ok=True)
 
-    print("Training VAE...")
+    print("Starting VAE Training...")
     for epoch in range(config['vae_epochs']):
         vae.train()
         total_loss = 0
-        for batch_idx, (obs, _) in enumerate(loader):
-            # Flatten batch and sequence: (B, Seq, C, H, W) -> (B*Seq, C, H, W)
+        total_mse = 0
+        total_kld = 0
+        
+        for batch_idx, obs in enumerate(loader):
             obs = obs.to(device)
-            B, S, C, H, W = obs.shape
-            obs = obs.view(-1, C, H, W)
-            
             optimizer.zero_grad()
+            
             recon_x, mu, logvar = vae(obs)
-            loss = loss_function(recon_x, obs, mu, logvar)
+            loss, mse, kld = vae_loss_function(recon_x, obs, mu, logvar)
+            
             loss.backward()
             optimizer.step()
             
             total_loss += loss.item()
-            
-            if batch_idx % 100 == 0:
-                wandb.log({"vae_loss": loss.item() / (B*S)})
-        
-        print(f"Epoch {epoch+1}, Loss: {total_loss / len(dataset)}")
+            total_mse += mse.item()
+            total_kld += kld.item()
+
+            if args.log and batch_idx % 50 == 0:
+                wandb.log({
+                    "vae/loss": loss.item() / len(obs),
+                    "vae/mse": mse.item() / len(obs),
+                    "vae/kld": kld.item() / len(obs)
+                })
+
+        avg_loss = total_loss / len(dataset)
+        print(f"Epoch {epoch+1}: Loss {avg_loss:.4f}")
         
         # Save Checkpoint
-        torch.save(vae.state_dict(), "vae.pth")
+        torch.save(vae.state_dict(), os.path.join(config['checkpoint_dir'], "vae_latest.pth"))
         
-        # Log reconstruction
-        with torch.no_grad():
-             wandb.log({"reconstruction": [wandb.Image(recon_x[0], caption="Recon"), wandb.Image(obs[0], caption="Original")]})
+        # Log Visuals
+        if args.log:
+            with torch.no_grad():
+                # Get first 8 images
+                orig = obs[:8]
+                recon = recon_x[:8]
+                comparison = torch.cat([orig, recon], dim=0)
+                wandb.log({"reconstruction": [wandb.Image(comparison, caption="Top: Orig, Bot: Recon")]})
 
 if __name__ == "__main__":
-    import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/default.yaml")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--log", action="store_true")
     args = parser.parse_args()
-    main(args.config)
+    main(args)
