@@ -1,0 +1,12 @@
+torch>=2.0.0
+torchvision>=0.15.0
+gymnasium[atari,accept-rom-license]
+ale-py
+numpy
+wandb
+huggingface_hub
+cma
+opencv-python
+pyyaml
+pytest
+tqdm

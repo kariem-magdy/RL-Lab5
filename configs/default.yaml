@@ -1,0 +1,27 @@
+# General
+seed: 42
+device: "cuda" # or "cpu"
+env_name: "BreakoutNoFrameskip-v4"
+wandb_project: "world-models-breakout"
+wandb_entity: "your-entity" # Change this
+
+# Data
+rollout_samples: 10000 # Number of episodes for VAE/RNN data
+batch_size: 100
+sequence_len: 1000 # Max seq len for RNN training
+
+# VAE (Vision)
+vae_latent_dim: 32
+vae_lr: 0.001
+vae_epochs: 10
+
+# RNN (Memory)
+rnn_hidden_dim: 256
+rnn_num_gaussians: 5
+rnn_lr: 0.001
+rnn_epochs: 20
+
+# Controller (Policy)
+pop_size: 64    # Population size for CMA-ES
+n_generations: 50
+target_return: 400 # Early stopping
