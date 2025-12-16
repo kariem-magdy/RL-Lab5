@@ -6,8 +6,8 @@ wandb_project: "world-models-breakout"
 wandb_entity: "your-entity"
 
 # Data Generation
-rollout_samples: 1000  # Number of episodes for VAE/RNN training
-max_frames: 1000       # Truncate episodes longer than this for data gen
+rollout_samples: 1000  # Number of episodes for VAE/LSTM training
+max_frames: 1000       # Truncate episodes longer than this
 
 # VAE (Vision)
 vae_latent_dim: 32
@@ -16,16 +16,16 @@ vae_lr: 0.001
 vae_epochs: 10
 resize_dim: 64
 
-# MDN-RNN (Memory)
-rnn_hidden_dim: 256
-rnn_num_gaussians: 5
-rnn_batch_size: 100
-rnn_lr: 0.001
-rnn_epochs: 20
+# MDN-LSTM (Memory)
+lstm_hidden_dim: 256
+lstm_num_gaussians: 5
+lstm_batch_size: 100
+lstm_lr: 0.001
+lstm_epochs: 20
 sequence_len: 100      # Sequence length for LSTM training
 
 # Controller (Policy)
-controller_pop_size: 64  # Population size for CMA-ES
+controller_pop_size: 64
 controller_generations: 50
 target_return: 400
 

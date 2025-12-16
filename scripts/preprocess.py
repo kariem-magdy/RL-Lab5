@@ -2,7 +2,6 @@ import argparse
 import numpy as np
 import os
 import cv2
-import yaml
 from tqdm import tqdm
 
 def preprocess_frame(frame, resize_dim=64):
@@ -19,34 +18,42 @@ def preprocess_frame(frame, resize_dim=64):
     return frame
 
 def main(args):
-    print(f"Loading raw data from {args.input}...")
-    data = np.load(args.input, allow_pickle=True)
-    raw_obs = data['obs']
-    raw_actions = data['actions']
+    print(f"Processing data from {args.input_dir}...")
     
+    files = [f for f in os.listdir(args.input_dir) if f.endswith('.npz')]
     os.makedirs(args.out_dir, exist_ok=True)
     
-    print("Preprocessing frames...")
-    count = 0
-    for i in tqdm(range(len(raw_obs))):
-        episode_frames = raw_obs[i]
+    if not files:
+        print("No .npz files found!")
+        return
+
+    print(f"Found {len(files)} rollouts. Preprocessing...")
+    
+    for f in tqdm(files):
+        # Load raw
+        raw_path = os.path.join(args.input_dir, f)
+        data = np.load(raw_path)
+        raw_obs = data['obs'] # List of frames
+        raw_actions = data['actions']
+        
+        # Process frames
         processed_frames = []
-        for frame in episode_frames:
+        for frame in raw_obs:
             processed_frames.append(preprocess_frame(frame, args.resize))
         
-        # Save individual episodes to allow lazy loading later
+        # Save processed
+        save_path = os.path.join(args.out_dir, f)
         np.savez_compressed(
-            os.path.join(args.out_dir, f"episode_{i}.npz"),
-            obs=np.array(processed_frames),
-            actions=raw_actions[i]
+            save_path,
+            obs=np.array(processed_frames), # float32, (T, 3, 64, 64)
+            actions=raw_actions
         )
-        count += 1
         
-    print(f"Preprocessed {count} episodes into {args.out_dir}")
+    print(f"Preprocessed data saved to {args.out_dir}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", required=True)
+    parser.add_argument("--input_dir", required=True)
     parser.add_argument("--out_dir", required=True)
     parser.add_argument("--resize", type=int, default=64)
     args = parser.parse_args()

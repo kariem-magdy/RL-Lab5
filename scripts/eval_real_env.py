@@ -11,7 +11,7 @@ import wandb
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from src.models.vae import VAE
-from src.models.mdn_rnn import MDNRNN
+from src.models.mdn_lstm import MDNLSTM
 from src.models.controller import Controller
 from scripts.preprocess import preprocess_frame
 from src.utils.logging import init_wandb
@@ -23,17 +23,15 @@ def main(args):
     
     if args.log: init_wandb(config, job_type="eval")
     
-    # Load Models
     vae = VAE(config['vae_latent_dim']).to(device)
     vae.load_state_dict(torch.load(os.path.join(config['checkpoint_dir'], "vae_latest.pth"), map_location=device))
     
-    rnn = MDNRNN(config['vae_latent_dim'], 4, config['rnn_hidden_dim']).to(device)
-    rnn.load_state_dict(torch.load(os.path.join(config['checkpoint_dir'], "rnn_latest.pth"), map_location=device))
+    lstm = MDNLSTM(config['vae_latent_dim'], 4, config['lstm_hidden_dim']).to(device)
+    lstm.load_state_dict(torch.load(os.path.join(config['checkpoint_dir'], "lstm_latest.pth"), map_location=device))
     
-    controller = Controller(config['vae_latent_dim'], config['rnn_hidden_dim']).to(device)
+    controller = Controller(config['vae_latent_dim'], config['lstm_hidden_dim']).to(device)
     controller.load_state_dict(torch.load(args.checkpoint, map_location=device))
     
-    # Setup Env with Recording
     os.makedirs(config['video_dir'], exist_ok=True)
     env = gym.make(config['env_name'], render_mode='rgb_array')
     env = RecordVideo(env, video_folder=config['video_dir'], episode_trigger=lambda x: True, name_prefix="eval_run")
@@ -50,9 +48,8 @@ def main(args):
         total_reward = 0
         steps = 0
         
-        # RNN Hidden init
-        h = torch.zeros(1, 1, config['rnn_hidden_dim']).to(device)
-        c = torch.zeros(1, 1, config['rnn_hidden_dim']).to(device)
+        h = torch.zeros(1, 1, config['lstm_hidden_dim']).to(device)
+        c = torch.zeros(1, 1, config['lstm_hidden_dim']).to(device)
         hidden = (h, c)
         
         while not (done or truncated):
@@ -68,7 +65,7 @@ def main(args):
                 
                 action_one_hot = torch.zeros(1, 1, 4).to(device)
                 action_one_hot[0, 0, action] = 1
-                _, _, _, hidden = rnn(mu.unsqueeze(0), action_one_hot, hidden)
+                _, _, _, hidden = lstm(mu.unsqueeze(0), action_one_hot, hidden)
             steps += 1
             
         duration = time.time() - start_time
@@ -81,7 +78,6 @@ def main(args):
         
     env.close()
     
-    # Save CSV
     df = pd.DataFrame(results)
     os.makedirs(args.out, exist_ok=True)
     csv_path = os.path.join(args.out, f"eval_{int(time.time())}.csv")
@@ -90,7 +86,6 @@ def main(args):
     
     if args.log:
         wandb.log({"eval_table": wandb.Table(dataframe=df)})
-        # Upload videos
         video_files = [f for f in os.listdir(config['video_dir']) if f.endswith(".mp4")]
         for v in video_files:
             wandb.log({"eval_video": wandb.Video(os.path.join(config['video_dir'], v))})
