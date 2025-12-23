@@ -3,7 +3,7 @@ seed: 42
 device: "cuda" # or "cpu"
 env_name: "BreakoutNoFrameskip-v4"
 wandb_project: "world-models-breakout"
-wandb_entity: "your-entity"
+wandb_entity: null # Set via env var or leave null
 
 # Data Generation
 rollout_samples: 1000  # Number of episodes for VAE/LSTM training
@@ -13,7 +13,7 @@ max_frames: 1000       # Truncate episodes longer than this
 vae_latent_dim: 32
 vae_batch_size: 100
 vae_lr: 0.001
-vae_epochs: 10
+vae_epochs: 20       # Increased for convergence
 resize_dim: 64
 
 # MDN-LSTM (Memory)
@@ -21,12 +21,12 @@ lstm_hidden_dim: 256
 lstm_num_gaussians: 5
 lstm_batch_size: 100
 lstm_lr: 0.001
-lstm_epochs: 20
-sequence_len: 100      # Sequence length for LSTM training
+lstm_epochs: 50      # Increased for convergence
+sequence_len: 100    # Sequence length for LSTM training
 
 # Controller (Policy)
 controller_pop_size: 64
-controller_generations: 50
+controller_generations: 100 # Dream training is fast, can afford more gens
 target_return: 400
 
 # Paths

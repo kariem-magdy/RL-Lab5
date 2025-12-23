@@ -40,12 +40,12 @@ def train_epoch(model, loader, optimizer, vae, device):
         rewards_target = rewards[:, 1:]
         
         optimizer.zero_grad()
-        # MDN-LSTM now returns reward_pred too
         logpi, mu_mdn, sigma_mdn, reward_pred, _ = model(z_in, actions_in)
         
         loss, mdn_loss, reward_loss = model.get_loss(logpi, mu_mdn, sigma_mdn, reward_pred, z_target, rewards_target)
         
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0) # Added clipping for stability
         optimizer.step()
         
         total_loss += loss.item()
@@ -83,14 +83,21 @@ def main(args):
     with open(args.config) as f:
         config = yaml.safe_load(f)
     
-    set_seed(args.seed)
+    set_seed(config['seed'])
     device = torch.device(config['device'])
     if args.log: init_wandb(config, job_type="train_lstm")
     
     # Load VAE (Frozen)
-    vae = VAE(latent_dim=config['vae_latent_dim']).to(device)
-    vae.load_state_dict(torch.load(os.path.join(config['checkpoint_dir'], "vae_best.pth"), map_location=device))
+    vae = VAE(latent_dim=config['vae_latent_dim'], resize_dim=config.get('resize_dim', 64)).to(device)
+    vae_path = os.path.join(config['checkpoint_dir'], "vae_best.pth")
+    if not os.path.exists(vae_path):
+        print(f"Error: VAE checkpoint not found at {vae_path}")
+        sys.exit(1)
+        
+    vae_ckpt = torch.load(vae_path, map_location=device)
+    vae.load_state_dict(vae_ckpt['model_state_dict'])
     vae.eval()
+    for p in vae.parameters(): p.requires_grad = False
     
     # Dataset
     full_dataset = LSTMDataset(config['data_processed'], seq_len=config['sequence_len'])
@@ -98,7 +105,7 @@ def main(args):
     val_size = len(full_dataset) - train_size
     train_set, val_set = random_split(full_dataset, [train_size, val_size])
     
-    train_loader = DataLoader(train_set, batch_size=config['lstm_batch_size'], num_workers=0) # workers=0 for simple caching
+    train_loader = DataLoader(train_set, batch_size=config['lstm_batch_size'], num_workers=0) 
     val_loader = DataLoader(val_set, batch_size=config['lstm_batch_size'], num_workers=0)
     
     # Model
@@ -112,38 +119,56 @@ def main(args):
     optimizer = Adam(lstm.parameters(), lr=config['lstm_lr'])
     
     ckpt_path = os.path.join(config['checkpoint_dir'], "lstm_latest.pth")
+    best_path = os.path.join(config['checkpoint_dir'], "lstm_best.pth")
     best_loss = float('inf')
+    start_epoch = 0
+    patience = 5
+    patience_counter = 0
     
     if os.path.exists(ckpt_path):
         print("Resuming LSTM...")
-        ckpt = torch.load(ckpt_path, map_location=device)
-        lstm.load_state_dict(ckpt['model_state_dict'])
-        optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+        try:
+            ckpt = torch.load(ckpt_path, map_location=device)
+            # Basic sanity check
+            if ckpt['config']['lstm_hidden_dim'] != config['lstm_hidden_dim']:
+                raise ValueError("Config mismatch (Hidden Dim)")
+            lstm.load_state_dict(ckpt['model_state_dict'])
+            optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+            start_epoch = ckpt['epoch'] + 1
+        except Exception as e:
+            print(f"Error loading LSTM checkpoint: {e}. Restarting.")
 
     print("Starting LSTM Training...")
-    for epoch in range(config['lstm_epochs']):
+    for epoch in range(start_epoch, config['lstm_epochs']):
         train_loss, reward_loss = train_epoch(lstm, train_loader, optimizer, vae, device)
         val_loss = validate(lstm, val_loader, vae, device)
         
-        print(f"Epoch {epoch+1}, Train Loss: {train_loss:.4f} (Rew: {reward_loss:.4f}), Val Loss: {val_loss:.4f}")
+        print(f"Epoch {epoch+1}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
         
         if args.log:
             wandb.log({"lstm/loss": train_loss, "lstm/val_loss": val_loss, "lstm/reward_mse": reward_loss})
             
-        torch.save({
+        save_dict = {
             'epoch': epoch,
             'model_state_dict': lstm.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict()
-        }, ckpt_path)
+            'optimizer_state_dict': optimizer.state_dict(),
+            'config': config
+        }
+        torch.save(save_dict, ckpt_path)
         
         if val_loss < best_loss:
             best_loss = val_loss
-            torch.save(lstm.state_dict(), os.path.join(config['checkpoint_dir'], "lstm_best.pth"))
+            torch.save(save_dict, best_path)
+            patience_counter = 0
+        else:
+            patience_counter += 1
+            if patience_counter >= patience:
+                print("Early stopping triggered.")
+                break
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/default.yaml")
-    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--log", action="store_true")
     args = parser.parse_args()
     main(args)
