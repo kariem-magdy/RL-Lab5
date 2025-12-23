@@ -4,7 +4,7 @@ import torch
 import os
 import sys
 import numpy as np
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, random_split
 from torch.optim import Adam
 import wandb
 
@@ -12,7 +12,48 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from src.models.vae import VAE, vae_loss_function
 from src.dataset import LazyRolloutDataset
 from src.utils.seed import set_seed
-from src.utils.logging import init_wandb
+from src.utils.tracking import init_wandb
+
+def train_epoch(model, loader, optimizer, device, config, epoch):
+    model.train()
+    total_loss = 0
+    total_frames = 0
+    
+    for batch_idx, (obs, _) in enumerate(loader):
+        obs = obs.squeeze(0).to(device) # (Seq, 3, 64, 64)
+        
+        chunk_size = config['vae_batch_size']
+        for i in range(0, len(obs), chunk_size):
+            batch = obs[i:i+chunk_size]
+            if len(batch) < 2: continue
+
+            optimizer.zero_grad()
+            recon_x, mu, logvar = model(batch)
+            loss, mse, kld = vae_loss_function(recon_x, batch, mu, logvar)
+            
+            loss.backward()
+            optimizer.step()
+            
+            total_loss += loss.item() * len(batch)
+            total_frames += len(batch)
+            
+    return total_loss / total_frames if total_frames > 0 else 0
+
+def validate(model, loader, device, config):
+    model.eval()
+    total_loss = 0
+    total_frames = 0
+    with torch.no_grad():
+        for (obs, _) in loader:
+            obs = obs.squeeze(0).to(device)
+            chunk_size = config['vae_batch_size']
+            for i in range(0, len(obs), chunk_size):
+                batch = obs[i:i+chunk_size]
+                recon_x, mu, logvar = model(batch)
+                loss, _, _ = vae_loss_function(recon_x, batch, mu, logvar)
+                total_loss += loss.item() * len(batch)
+                total_frames += len(batch)
+    return total_loss / total_frames if total_frames > 0 else 0
 
 def main(args):
     with open(args.config) as f:
@@ -22,64 +63,53 @@ def main(args):
     device = torch.device(config['device'])
     if args.log: init_wandb(config, job_type="train_vae")
 
-    # Data - Use Lazy Loading
-    dataset = LazyRolloutDataset(config['data_processed'])
+    # Data
+    full_dataset = LazyRolloutDataset(config['data_processed'])
+    train_size = int(0.9 * len(full_dataset))
+    val_size = len(full_dataset) - train_size
+    train_set, val_set = random_split(full_dataset, [train_size, val_size])
     
-    # Collate function to handle variable sequence lengths if we want to batch episodes
-    # Ideally for VAE we just want a bag of frames. 
-    # Current LazyRolloutDataset returns (Seq, 3, 64, 64).
-    # Since sequences differ in length, standard DataLoader batching fails unless batch_size=1.
-    # We will use batch_size=1 (one episode per batch) and then flatten internally.
-    loader = DataLoader(dataset, batch_size=1, shuffle=True, num_workers=2)
+    train_loader = DataLoader(train_set, batch_size=1, shuffle=True, num_workers=2)
+    val_loader = DataLoader(val_set, batch_size=1, shuffle=False, num_workers=2)
 
-    # Model
+    # Model & Optimization
     vae = VAE(latent_dim=config['vae_latent_dim']).to(device)
     optimizer = Adam(vae.parameters(), lr=config['vae_lr'])
     
     os.makedirs(config['checkpoint_dir'], exist_ok=True)
+    best_loss = float('inf')
+    start_epoch = 0
+    
+    # Resumption
+    ckpt_path = os.path.join(config['checkpoint_dir'], "vae_latest.pth")
+    if os.path.exists(ckpt_path):
+        print("Resuming from checkpoint...")
+        ckpt = torch.load(ckpt_path, map_location=device)
+        vae.load_state_dict(ckpt['model_state_dict'])
+        optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+        start_epoch = ckpt['epoch'] + 1
 
     print("Starting VAE Training...")
-    for epoch in range(config['vae_epochs']):
-        vae.train()
-        total_loss = 0
-        total_frames = 0
+    for epoch in range(start_epoch, config['vae_epochs']):
+        train_loss = train_epoch(vae, train_loader, optimizer, device, config, epoch)
+        val_loss = validate(vae, val_loader, device, config)
         
-        for batch_idx, (obs, _) in enumerate(loader):
-            # obs shape: (1, Seq, 3, 64, 64)
-            obs = obs.squeeze(0).to(device) # (Seq, 3, 64, 64)
-            
-            # Sub-batching to avoid GPU OOM on long episodes
-            chunk_size = config['vae_batch_size']
-            
-            for i in range(0, len(obs), chunk_size):
-                batch = obs[i:i+chunk_size]
-                
-                optimizer.zero_grad()
-                recon_x, mu, logvar = vae(batch)
-                loss, mse, kld = vae_loss_function(recon_x, batch, mu, logvar)
-                
-                loss.backward()
-                optimizer.step()
-                
-                total_loss += loss.item()
-                total_frames += len(batch)
-            
-            if args.log and batch_idx % 10 == 0:
-                wandb.log({"vae/loss": loss.item() / len(batch)})
-
-        avg_loss = total_loss / total_frames
-        print(f"Epoch {epoch+1}: Avg Loss per Frame {avg_loss:.4f}")
+        print(f"Epoch {epoch+1}: Train Loss {train_loss:.4f}, Val Loss {val_loss:.4f}")
         
-        # Save Checkpoint
-        torch.save(vae.state_dict(), os.path.join(config['checkpoint_dir'], "vae_latest.pth"))
-        
-        # Log Visuals
         if args.log:
-            with torch.no_grad():
-                sample = obs[:8]
-                recon, _, _ = vae(sample)
-                comparison = torch.cat([sample, recon], dim=0)
-                wandb.log({"reconstruction": [wandb.Image(comparison, caption="Top: Orig, Bot: Recon")]})
+            wandb.log({"vae/train_loss": train_loss, "vae/val_loss": val_loss})
+
+        # Save Latest
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': vae.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+        }, ckpt_path)
+        
+        # Save Best
+        if val_loss < best_loss:
+            best_loss = val_loss
+            torch.save(vae.state_dict(), os.path.join(config['checkpoint_dir'], "vae_best.pth"))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

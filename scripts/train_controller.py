@@ -68,6 +68,7 @@ def main(args):
     controller = Controller(config['vae_latent_dim'], config['lstm_hidden_dim']).to(device)
     
     env = gym.make(config['env_name'])
+    env.action_space.seed(args.seed) # Explicit seeding
     
     n_params = controller.count_parameters()
     es = cma.CMAEvolutionStrategy(n_params * [0], 0.1, {

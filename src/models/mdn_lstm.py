@@ -12,13 +12,15 @@ class MDNLSTM(nn.Module):
         self.num_gaussians = num_gaussians
 
         # Input: z (latent) + action
-        # batch_first=True is crucial for (Batch, Seq, Feature)
         self.lstm = nn.LSTM(latent_dim + action_dim, hidden_dim, batch_first=True)
         
         # MDN Heads: Output params for Gaussian Mixture
         self.fc_logpi = nn.Linear(hidden_dim, num_gaussians * latent_dim)
         self.fc_mu = nn.Linear(hidden_dim, num_gaussians * latent_dim)
         self.fc_logsigma = nn.Linear(hidden_dim, num_gaussians * latent_dim)
+        
+        # Reward Head: Predict next reward (Crucial for Dream training)
+        self.fc_reward = nn.Linear(hidden_dim, 1)
 
     def forward(self, z, action, hidden=None):
         # z: (batch, seq, latent)
@@ -35,6 +37,9 @@ class MDNLSTM(nn.Module):
         mu = self.fc_mu(output)
         logsigma = self.fc_logsigma(output)
         
+        # Project to Reward
+        reward_pred = self.fc_reward(output)
+        
         # Reshape to (batch, seq, num_gaussians, latent_dim)
         batch, seq, _ = output.shape
         logpi = logpi.view(batch, seq, self.num_gaussians, self.latent_dim)
@@ -44,20 +49,25 @@ class MDNLSTM(nn.Module):
         logpi = F.log_softmax(logpi, dim=2) # Normalize mixing coefficients
         sigma = torch.exp(logsigma) # Ensure positive std dev
         
-        return logpi, mu, sigma, hidden
+        return logpi, mu, sigma, reward_pred, hidden
 
-    def get_loss(self, logpi, mu, sigma, target_z):
+    def get_loss(self, logpi, mu, sigma, reward_pred, target_z, target_reward):
         # target_z: (batch, seq, latent_dim)
-        target_z = target_z.unsqueeze(2) # Expand for gaussians broadcasting
+        # target_reward: (batch, seq)
+        
+        # 1. MDN Loss
+        target_z_exp = target_z.unsqueeze(2) # Expand for gaussians broadcasting
         
         # Log Probability: log(N(x | mu, sigma))
-        log_prob = -0.5 * ((target_z - mu) / sigma)**2 - torch.log(sigma) - 0.5 * np.log(2 * np.pi)
+        log_prob = -0.5 * ((target_z_exp - mu) / sigma)**2 - torch.log(sigma) - 0.5 * np.log(2 * np.pi)
         
         # Weighted Log Prob: log(pi) + log(N(x))
         weighted_log_prob = logpi + log_prob
         
         # Log Sum Exp over gaussians
-        loss = torch.logsumexp(weighted_log_prob, dim=2)
+        mdn_loss = -torch.logsumexp(weighted_log_prob, dim=2).mean()
         
-        # Negative Log Likelihood
-        return -torch.mean(loss)
+        # 2. Reward Loss (MSE)
+        reward_loss = F.mse_loss(reward_pred.squeeze(-1), target_reward)
+        
+        return mdn_loss + reward_loss, mdn_loss, reward_loss

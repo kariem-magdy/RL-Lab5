@@ -1,21 +1,12 @@
 import argparse
 import numpy as np
 import os
-import cv2
 from tqdm import tqdm
+import sys
 
-def preprocess_frame(frame, resize_dim=64):
-    """
-    Input: (210, 160, 3) uint8
-    Output: (3, 64, 64) float32 normalized
-    """
-    # Resize
-    frame = cv2.resize(frame, (resize_dim, resize_dim), interpolation=cv2.INTER_AREA)
-    # Normalize 0-1
-    frame = frame.astype(np.float32) / 255.0
-    # Channel First (C, H, W)
-    frame = np.transpose(frame, (2, 0, 1))
-    return frame
+# Add project root to path to ensure imports work
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from src.utils.image import preprocess_frame
 
 def main(args):
     print(f"Processing data from {args.input_dir}...")
@@ -35,6 +26,8 @@ def main(args):
         data = np.load(raw_path)
         raw_obs = data['obs'] # List of frames
         raw_actions = data['actions']
+        raw_rewards = data['rewards']
+        raw_dones = data['dones']
         
         # Process frames
         processed_frames = []
@@ -46,7 +39,9 @@ def main(args):
         np.savez_compressed(
             save_path,
             obs=np.array(processed_frames), # float32, (T, 3, 64, 64)
-            actions=raw_actions
+            actions=raw_actions,
+            rewards=raw_rewards,
+            dones=raw_dones
         )
         
     print(f"Preprocessed data saved to {args.out_dir}")

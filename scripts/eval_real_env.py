@@ -34,13 +34,15 @@ def main(args):
     
     os.makedirs(config['video_dir'], exist_ok=True)
     env = gym.make(config['env_name'], render_mode='rgb_array')
+    env.action_space.seed(config['seed']) # Seed action space
+    
     env = RecordVideo(env, video_folder=config['video_dir'], episode_trigger=lambda x: True, name_prefix="eval_run")
     
     results = []
     
     print(f"Evaluating for {args.episodes} episodes...")
     for i in range(args.episodes):
-        obs, _ = env.reset()
+        obs, _ = env.reset() # Gym reset automatically handles environment seeding if set in init, but action space is separate
         done = False
         truncated = False
         
