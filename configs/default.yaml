@@ -5,30 +5,29 @@ env_name: "BreakoutNoFrameskip-v4"
 wandb_project: "world-models-breakout"
 wandb_entity: null 
 
-# Data Generation (The "100% Solve" Requirement)
-# 10,000 episodes is the benchmark used in the original paper to solve complex tasks.
-rollout_samples: 10000 
-max_frames: 1000       
+# Data Generation (Production Scale)
+rollout_samples: 10000   # 10k episodes for statistical certainty
+max_frames: 1000         # Hard cap per episode
 
 # VAE (Vision)
-vae_latent_dim: 32     # Standard for Atari.
-vae_batch_size: 128    # Stable gradient averaging.
-vae_lr: 0.0001         # 1e-4: Slow and steady convergence.
-vae_epochs: 10         # 10k samples * 10 epochs = 100,000 optimization steps (High).
+vae_latent_dim: 32       # Standard for Atari
+vae_batch_size: 128      # Stable batch size
+vae_lr: 0.0001           # 1e-4 for stability
+vae_epochs: 10           # 10 epochs * 10k samples = 100k updates
 resize_dim: 64
 
-# MDN-LSTM (Memory / World Model)
-lstm_hidden_dim: 512   # Critical: Increased to 512 to model complex ball physics without "forgetting".
-lstm_num_gaussians: 5  # Handles the stochasticity of frame skipping.
-lstm_batch_size: 64    # precise updates.
-lstm_lr: 0.0001        # Matches VAE.
-lstm_epochs: 20        # 10k samples * 20 epochs = 200,000 steps. Prevents overfitting while ensuring depth.
-sequence_len: 50       # Shorter sequences stabilize training on massive datasets.
+# MDN-LSTM (Memory)
+lstm_hidden_dim: 512     # High capacity to memorize physics
+lstm_num_gaussians: 5    # Handles stochastic bounces
+lstm_batch_size: 64      # Precise gradient updates
+lstm_lr: 0.0001          # Consistent with VAE
+lstm_epochs: 20          # 20 epochs * 10k samples = 200k updates
+sequence_len: 50         # Shorter sequences stabilize BPTT
 
 # Controller (Policy)
 controller_pop_size: 64
-controller_generations: 200 # Deep evolution to refine the "tunneling" strategy.
-target_return: 400          # The score defining a "Solve".
+controller_generations: 200 # Deep evolution
+target_return: 400          # "Solved" score
 
 # Paths
 data_raw: "data/raw"

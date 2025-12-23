@@ -45,7 +45,7 @@ def train_epoch(model, loader, optimizer, vae, device):
         loss, mdn_loss, reward_loss = model.get_loss(logpi, mu_mdn, sigma_mdn, reward_pred, z_target, rewards_target)
         
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0) # Added clipping for stability
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0) # Added clipping
         optimizer.step()
         
         total_loss += loss.item()
@@ -129,8 +129,6 @@ def main(args):
         print("Resuming LSTM...")
         try:
             ckpt = torch.load(ckpt_path, map_location=device)
-            if ckpt['config']['lstm_hidden_dim'] != config['lstm_hidden_dim']:
-                raise ValueError("Config mismatch (Hidden Dim)")
             lstm.load_state_dict(ckpt['model_state_dict'])
             optimizer.load_state_dict(ckpt['optimizer_state_dict'])
             start_epoch = ckpt['epoch'] + 1

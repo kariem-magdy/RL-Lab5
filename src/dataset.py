@@ -17,11 +17,10 @@ class LazyRolloutDataset(Dataset):
     
     def __getitem__(self, idx):
         # Load in mmap mode to avoid reading entire file to RAM
-        # We only access 'obs'
         try:
             data = np.load(self.files[idx], mmap_mode='r')
-            obs = data['obs'] # This is now a memmap object
-            # Convert to tensor (this forces a read of only the needed data)
+            obs = data['obs'] 
+            # Convert to tensor (forces a read of only the specific array)
             obs_tensor = torch.from_numpy(np.array(obs)).float()
             return obs_tensor, torch.zeros(1) 
         except Exception as e:
@@ -31,7 +30,7 @@ class LazyRolloutDataset(Dataset):
 class LSTMDataset(Dataset):
     """
     Memory-Efficient Dataset for LSTM training.
-    Uses lazy loading and memory mapping to handle large datasets.
+    Uses lazy loading and random slicing to handle large datasets.
     """
     def __init__(self, data_dir, seq_len=100, virtual_size=10000):
         self.files = sorted([os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.endswith('.npz')])
@@ -41,18 +40,15 @@ class LSTMDataset(Dataset):
         if len(self.files) == 0:
             raise ValueError(f"No .npz files found in {data_dir}")
             
-        print(f"LSTMDataset initialized with {len(self.files)} files. Virtual Epoch Size: {virtual_size}")
-        
     def __len__(self):
         return self.virtual_size
     
     def __getitem__(self, idx):
-        # Randomly select a file from the list (ignore idx, act as infinite sampler)
+        # Randomly select a file (infinite sampling strategy)
         file_idx = np.random.randint(0, len(self.files))
         filepath = self.files[file_idx]
         
         try:
-            # Open in mmap mode
             data = np.load(filepath, mmap_mode='r')
             obs = data['obs']         # (T, 3, 64, 64)
             actions = data['actions'] # (T,)
@@ -61,15 +57,14 @@ class LSTMDataset(Dataset):
             total_len = len(obs)
             
             if total_len <= self.seq_len + 1:
-                # Fallback: Retry with a new random file index
-                # We ignore 'idx' input and generate a new random file index
-                return self.__getitem__(0)
+                # Retry if episode is too short
+                return self.__getitem__((idx + 1) % self.virtual_size)
             
             # Random window
             start = np.random.randint(0, total_len - self.seq_len - 1)
             end = start + self.seq_len + 1
             
-            # Slicing the mmap object reads ONLY that chunk from disk
+            # Read only the slice from disk
             o_seq = np.array(obs[start:end])
             a_seq = np.array(actions[start:end])
             r_seq = np.array(rewards[start:end])
@@ -80,5 +75,4 @@ class LSTMDataset(Dataset):
                     
         except Exception as e:
             print(f"Error reading {filepath}: {e}")
-            # Fallback
-            return self.__getitem__(0)
+            return self.__getitem__((idx + 1) % self.virtual_size)
