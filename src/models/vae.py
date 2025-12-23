@@ -9,18 +9,26 @@ class VAE(nn.Module):
         self.resize_dim = resize_dim
 
         # Encoder
-        # Output calculation: Floor((H + 2*padding - dilation*(kernel-1) - 1)/stride + 1)
-        # Here: Kernel=4, Stride=2, Padding=0 -> (H-4)/2 + 1 = H/2 - 1 roughly.
-        # Ideally, we calculate the flattened size dynamically to support any resize_dim.
-        
+        # Kernel=4, Stride=2, Padding=0 (Default)
+        # 64 -> 31 -> 14 -> 6 -> 2
         self.enc_conv1 = nn.Conv2d(img_channels, 32, 4, stride=2)
         self.enc_conv2 = nn.Conv2d(32, 64, 4, stride=2)
         self.enc_conv3 = nn.Conv2d(64, 128, 4, stride=2)
         self.enc_conv4 = nn.Conv2d(128, 256, 4, stride=2)
         
-        # Calculate dynamic flatten size
+        # Dynamic Shape Calculation
+        # We run a dummy pass to determine:
+        # 1. The flat size for the Linear layer
+        # 2. The spatial shape (C, H, W) for the Decoder's first reshape
         with torch.no_grad():
-            self.flatten_dim = self._get_flatten_dim(img_channels, resize_dim)
+            dummy_input = torch.zeros(1, img_channels, resize_dim, resize_dim)
+            x = self.enc_conv1(dummy_input)
+            x = self.enc_conv2(x)
+            x = self.enc_conv3(x)
+            x = self.enc_conv4(x)
+            
+            self.bottleneck_shape = x.shape[1:] # (C, H, W) e.g., (256, 2, 2)
+            self.flatten_dim = int(torch.prod(torch.tensor(self.bottleneck_shape)))
 
         self.fc_mu = nn.Linear(self.flatten_dim, latent_dim)
         self.fc_logvar = nn.Linear(self.flatten_dim, latent_dim)
@@ -28,25 +36,11 @@ class VAE(nn.Module):
         # Decoder
         self.dec_fc = nn.Linear(latent_dim, self.flatten_dim)
         
-        # We need to know the spatial dimensions before flattening to reshape in decode
-        # Assuming 4 layers of stride 2 reduction on 64 -> 2x2.
-        # On generic sizes, we reverse the calculation.
-        self.last_h = int(resize_dim / (2**4)) # Approximation, typically valid for powers of 2
-        if self.last_h < 1: self.last_h = 1
-        # The channel depth at the last encoder layer is 256
-        
+        # Transpose Convs (Mirroring Encoder)
         self.dec_conv1 = nn.ConvTranspose2d(256, 128, 5, stride=2)
         self.dec_conv2 = nn.ConvTranspose2d(128, 64, 5, stride=2)
         self.dec_conv3 = nn.ConvTranspose2d(64, 32, 6, stride=2)
         self.dec_conv4 = nn.ConvTranspose2d(32, img_channels, 6, stride=2)
-
-    def _get_flatten_dim(self, c, h):
-        x = torch.zeros(1, c, h, h)
-        x = self.enc_conv1(x)
-        x = self.enc_conv2(x)
-        x = self.enc_conv3(x)
-        x = self.enc_conv4(x)
-        return int(torch.prod(torch.tensor(x.size())))
 
     def encode(self, x):
         h = F.relu(self.enc_conv1(x))
@@ -63,11 +57,11 @@ class VAE(nn.Module):
 
     def decode(self, z):
         h = self.dec_fc(z)
-        # Reshape to (Batch, Channel, H, W) matching the encoder's last conv output
-        # Note: This exact shape logic assumes 64x64 -> 2x2x256. 
-        # For full generalization, we should store the shape in _get_flatten_dim.
-        # But for the 64x64 standard config, 256 ch, 2x2 spatial is correct.
-        h = h.view(h.size(0), 256, 2, 2) 
+        
+        # Dynamic Reshape
+        # Uses the calculated bottleneck shape from __init__
+        # (Batch, C, H, W)
+        h = h.view(h.size(0), *self.bottleneck_shape)
         
         h = F.relu(self.dec_conv1(h))
         h = F.relu(self.dec_conv2(h))

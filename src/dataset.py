@@ -61,11 +61,9 @@ class LSTMDataset(Dataset):
             total_len = len(obs)
             
             if total_len <= self.seq_len + 1:
-                # If too short, just take what we have (pad later if batching requires strictly equal, 
-                # but standard practice is to just skip or take all)
-                # For simplicity here, we assume episodes are generally long enough.
-                # If strictly short, we retry once.
-                return self.__getitem__(idx + 1)
+                # Fallback: Retry with a new random file index
+                # We ignore 'idx' input and generate a new random file index
+                return self.__getitem__(0)
             
             # Random window
             start = np.random.randint(0, total_len - self.seq_len - 1)
@@ -83,4 +81,4 @@ class LSTMDataset(Dataset):
         except Exception as e:
             print(f"Error reading {filepath}: {e}")
             # Fallback
-            return self.__getitem__((idx + 1) % self.virtual_size)
+            return self.__getitem__(0)

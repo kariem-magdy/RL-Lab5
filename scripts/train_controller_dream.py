@@ -36,6 +36,7 @@ def dream_rollout(params, lstm, controller, device, max_steps=1000):
         for _ in range(max_steps):
             # 1. Controller chooses action based on current z and h
             # controller expects z: (1, latent) and h: (1, hidden)
+            # hidden[0] is (1, 1, hidden_dim) -> squeeze to (1, hidden_dim)
             action_idx = controller.get_action(z.squeeze(1), hidden[0].squeeze(0))
             
             # 2. Prepare inputs for LSTM

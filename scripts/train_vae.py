@@ -102,6 +102,7 @@ def main(args):
         print("Resuming from checkpoint...")
         try:
             ckpt = torch.load(ckpt_path, map_location=device)
+            # Minimal check for mismatch
             if 'config' in ckpt and ckpt['config']['vae_latent_dim'] != config['vae_latent_dim']:
                 raise ValueError("Config mismatch in checkpoint")
             vae.load_state_dict(ckpt['model_state_dict'])

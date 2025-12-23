@@ -129,7 +129,6 @@ def main(args):
         print("Resuming LSTM...")
         try:
             ckpt = torch.load(ckpt_path, map_location=device)
-            # Basic sanity check
             if ckpt['config']['lstm_hidden_dim'] != config['lstm_hidden_dim']:
                 raise ValueError("Config mismatch (Hidden Dim)")
             lstm.load_state_dict(ckpt['model_state_dict'])
