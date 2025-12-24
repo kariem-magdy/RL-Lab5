@@ -27,7 +27,7 @@ sequence_len: 50
 # Controller (Policy)
 controller_pop_size: 64
 controller_generations: 200 
-controller_eval_freq: 10    # Video check every 10 gens
+controller_eval_freq: 1    # Video check every 10 gens
 target_return: 400          
 
 # Paths
