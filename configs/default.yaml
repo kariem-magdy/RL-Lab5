@@ -5,29 +5,30 @@ env_name: "BreakoutNoFrameskip-v4"
 wandb_project: "world-models-breakout"
 wandb_entity: null 
 
-# Data Generation (Production Scale)
-rollout_samples: 20000   # 10k episodes for statistical certainty
-max_frames: 1000         # Hard cap per episode
+# Data Generation
+rollout_samples: 10000 
+max_frames: 1000       
 
 # VAE (Vision)
-vae_latent_dim: 32       # Standard for Atari
-vae_batch_size: 128      # Stable batch size
-vae_lr: 0.0001           # 1e-4 for stability
-vae_epochs: 10           # 10 epochs * 10k samples = 100k updates
+vae_latent_dim: 32     
+vae_batch_size: 128    
+vae_lr: 0.0001         
+vae_epochs: 10         
 resize_dim: 64
 
 # MDN-LSTM (Memory)
-lstm_hidden_dim: 512     # High capacity to memorize physics
-lstm_num_gaussians: 5    # Handles stochastic bounces
-lstm_batch_size: 64      # Precise gradient updates
-lstm_lr: 0.0001          # Consistent with VAE
-lstm_epochs: 20          # 20 epochs * 10k samples = 200k updates
-sequence_len: 50         # Shorter sequences stabilize BPTT
+lstm_hidden_dim: 512   
+lstm_num_gaussians: 5  
+lstm_batch_size: 64    
+lstm_lr: 0.0001        
+lstm_epochs: 20        
+sequence_len: 50       
 
 # Controller (Policy)
 controller_pop_size: 64
-controller_generations: 200 # Deep evolution
-target_return: 400          # "Solved" score
+controller_generations: 200 
+controller_eval_freq: 10    # <--- NEW: Video Check Frequency
+target_return: 400          
 
 # Paths
 data_raw: "data/raw"
