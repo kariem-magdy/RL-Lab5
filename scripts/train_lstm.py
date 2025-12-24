@@ -45,7 +45,7 @@ def train_epoch(model, loader, optimizer, vae, device):
         loss, mdn_loss, reward_loss = model.get_loss(logpi, mu_mdn, sigma_mdn, reward_pred, z_target, rewards_target)
         
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0) # Added clipping
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0) # Clipping
         optimizer.step()
         
         total_loss += loss.item()
@@ -87,7 +87,6 @@ def main(args):
     device = torch.device(config['device'])
     if args.log: init_wandb(config, job_type="train_lstm")
     
-    # Load VAE (Frozen)
     vae = VAE(latent_dim=config['vae_latent_dim'], resize_dim=config.get('resize_dim', 64)).to(device)
     vae_path = os.path.join(config['checkpoint_dir'], "vae_best.pth")
     if not os.path.exists(vae_path):
@@ -97,9 +96,7 @@ def main(args):
     vae_ckpt = torch.load(vae_path, map_location=device)
     vae.load_state_dict(vae_ckpt['model_state_dict'])
     vae.eval()
-    for p in vae.parameters(): p.requires_grad = False
     
-    # Dataset
     full_dataset = LSTMDataset(config['data_processed'], seq_len=config['sequence_len'])
     train_size = int(0.9 * len(full_dataset))
     val_size = len(full_dataset) - train_size
@@ -108,7 +105,6 @@ def main(args):
     train_loader = DataLoader(train_set, batch_size=config['lstm_batch_size'], num_workers=0) 
     val_loader = DataLoader(val_set, batch_size=config['lstm_batch_size'], num_workers=0)
     
-    # Model
     lstm = MDNLSTM(
         latent_dim=config['vae_latent_dim'], 
         action_dim=4, 

@@ -5,29 +5,29 @@ env_name: "BreakoutNoFrameskip-v4"
 wandb_project: "world-models-breakout"
 wandb_entity: null 
 
-# Data Generation
-rollout_samples: 10000 
-max_frames: 1000       
+# Data Generation (Updated)
+rollout_samples: 15000   # 15k episodes for robust training
+max_frames: 1000         # Hard cap per episode
 
 # VAE (Vision)
-vae_latent_dim: 32     
-vae_batch_size: 128    
-vae_lr: 0.0001         
-vae_epochs: 10         
+vae_latent_dim: 32       
+vae_batch_size: 128      
+vae_lr: 0.0001           
+vae_epochs: 10           
 resize_dim: 64
 
 # MDN-LSTM (Memory)
-lstm_hidden_dim: 512   
-lstm_num_gaussians: 5  
-lstm_batch_size: 64    
-lstm_lr: 0.0001        
-lstm_epochs: 20        
-sequence_len: 50       
+lstm_hidden_dim: 512     # High capacity
+lstm_num_gaussians: 5    
+lstm_batch_size: 64      
+lstm_lr: 0.0001          
+lstm_epochs: 20          
+sequence_len: 50         
 
 # Controller (Policy)
 controller_pop_size: 64
 controller_generations: 200 
-controller_eval_freq: 10    # <--- NEW: Video Check Frequency
+controller_eval_freq: 10    # Video check every 10 gens
 target_return: 400          
 
 # Paths

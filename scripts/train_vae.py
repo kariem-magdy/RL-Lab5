@@ -14,13 +14,12 @@ from src.dataset import LazyRolloutDataset
 from src.utils.seed import set_seed
 from src.utils.tracking import init_wandb
 
-def train_epoch(model, loader, optimizer, device, config):
+def train_epoch(model, loader, optimizer, device, config, epoch):
     model.train()
     total_loss = 0
     total_frames = 0
     
     for batch_idx, (obs, _) in enumerate(loader):
-        # obs is (Batch=1, Seq, C, H, W)
         obs = obs.squeeze(0).to(device)
         
         chunk_size = config['vae_batch_size']
@@ -72,7 +71,6 @@ def main(args):
     device = torch.device(config['device'])
     if args.log: init_wandb(config, job_type="train_vae")
 
-    # Data
     full_dataset = LazyRolloutDataset(config['data_processed'])
     if len(full_dataset) == 0:
         print("No data found. Exiting.")
@@ -85,7 +83,6 @@ def main(args):
     train_loader = DataLoader(train_set, batch_size=1, shuffle=True, num_workers=2)
     val_loader = DataLoader(val_set, batch_size=1, shuffle=False, num_workers=2)
 
-    # Model
     vae = VAE(latent_dim=config['vae_latent_dim'], resize_dim=config.get('resize_dim', 64)).to(device)
     optimizer = Adam(vae.parameters(), lr=config['vae_lr'])
     
@@ -95,21 +92,16 @@ def main(args):
     
     start_epoch = 0
     best_loss = float('inf')
-    patience = 5
-    patience_counter = 0
-
+    
     if os.path.exists(ckpt_path):
         print("Resuming from checkpoint...")
         try:
             ckpt = torch.load(ckpt_path, map_location=device)
-            # Minimal check for mismatch
-            if 'config' in ckpt and ckpt['config']['vae_latent_dim'] != config['vae_latent_dim']:
-                raise ValueError("Config mismatch in checkpoint")
             vae.load_state_dict(ckpt['model_state_dict'])
             optimizer.load_state_dict(ckpt['optimizer_state_dict'])
             start_epoch = ckpt['epoch'] + 1
         except Exception as e:
-            print(f"Could not load checkpoint: {e}. Starting from scratch.")
+            print(f"Could not load checkpoint: {e}")
 
     print("Starting VAE Training...")
     for epoch in range(start_epoch, config['vae_epochs']):
@@ -126,12 +118,6 @@ def main(args):
         if val_loss < best_loss:
             best_loss = val_loss
             save_checkpoint(vae, optimizer, epoch, config, best_path)
-            patience_counter = 0
-        else:
-            patience_counter += 1
-            if patience_counter >= patience:
-                print("Early stopping triggered.")
-                break
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

@@ -8,13 +8,11 @@ class VAE(nn.Module):
         self.latent_dim = latent_dim
         self.resize_dim = resize_dim
 
-        # Encoder
         self.enc_conv1 = nn.Conv2d(img_channels, 32, 4, stride=2)
         self.enc_conv2 = nn.Conv2d(32, 64, 4, stride=2)
         self.enc_conv3 = nn.Conv2d(64, 128, 4, stride=2)
         self.enc_conv4 = nn.Conv2d(128, 256, 4, stride=2)
         
-        # Dynamic Shape Calculation
         with torch.no_grad():
             dummy_input = torch.zeros(1, img_channels, resize_dim, resize_dim)
             x = self.enc_conv1(dummy_input)
@@ -22,15 +20,13 @@ class VAE(nn.Module):
             x = self.enc_conv3(x)
             x = self.enc_conv4(x)
             
-            self.bottleneck_shape = x.shape[1:] # (C, H, W)
+            self.bottleneck_shape = x.shape[1:] 
             self.flatten_dim = int(torch.prod(torch.tensor(self.bottleneck_shape)))
 
         self.fc_mu = nn.Linear(self.flatten_dim, latent_dim)
         self.fc_logvar = nn.Linear(self.flatten_dim, latent_dim)
 
-        # Decoder
         self.dec_fc = nn.Linear(latent_dim, self.flatten_dim)
-        
         self.dec_conv1 = nn.ConvTranspose2d(256, 128, 5, stride=2)
         self.dec_conv2 = nn.ConvTranspose2d(128, 64, 5, stride=2)
         self.dec_conv3 = nn.ConvTranspose2d(64, 32, 6, stride=2)
@@ -51,9 +47,7 @@ class VAE(nn.Module):
 
     def decode(self, z):
         h = self.dec_fc(z)
-        # Dynamic Reshape based on calculated shape
         h = h.view(h.size(0), *self.bottleneck_shape)
-        
         h = F.relu(self.dec_conv1(h))
         h = F.relu(self.dec_conv2(h))
         h = F.relu(self.dec_conv3(h))
