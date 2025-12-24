@@ -6,7 +6,7 @@ wandb_project: "world-models-breakout"
 wandb_entity: null 
 
 # Data Generation (Production Scale)
-rollout_samples: 10000   # 10k episodes for statistical certainty
+rollout_samples: 20000   # 10k episodes for statistical certainty
 max_frames: 1000         # Hard cap per episode
 
 # VAE (Vision)
